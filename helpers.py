@@ -9,6 +9,7 @@ Helper utilities for the NTV transcoder Colab notebook.
 
 import os
 import re
+import glob
 import subprocess
 from pathlib import Path
 
@@ -116,6 +117,64 @@ def make_thumbnail(video_path: str, out_path: str, at_seconds: float = 5.0,
     except Exception as e:
         print(f"[warn] webp convert failed ({e}); keeping jpg")
         return jpg
+
+
+def fetch_youtube_thumbnail(video_id: str, out_path: str,
+                            cookies_file: str = None) -> str:
+    """Download a video's thumbnail *from YouTube* via yt-dlp and save as webp.
+
+    This always pulls from YouTube using ``video_id``, so it works even when the
+    source video was downloaded from Google Drive — as long as the id you pass
+    is the YouTube id. Returns the webp path, or None on failure (caller can then
+    fall back to make_thumbnail()).
+    """
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    base = str(out.with_suffix(""))                 # e.g. workspace/<id>_thumb
+    webp = str(out.with_suffix(".webp"))
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # Clear any stale thumbnail files for this base (any extension)
+    for stale in glob.glob(base + ".*"):
+        try:
+            os.remove(stale)
+        except OSError:
+            pass
+
+    cmd = ["yt-dlp", "--skip-download", "--write-thumbnail",
+           "-o", base + ".%(ext)s", url]
+    if cookies_file and os.path.exists(cookies_file):
+        cmd[1:1] = ["--cookies", cookies_file]
+
+    print(f"[yt-dlp] fetching thumbnail for id={video_id} ...")
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"[warn] yt-dlp thumbnail failed for {video_id}: "
+              f"{(r.stderr or '').strip()[:200]}")
+        return None
+
+    produced = glob.glob(base + ".*")
+    if not produced:
+        print(f"[warn] yt-dlp produced no thumbnail file for {video_id}")
+        return None
+
+    src = produced[0]
+    if src.lower().endswith(".webp"):
+        print(f"[ok] thumbnail (yt-dlp) -> {src}")
+        return src
+
+    # Normalize whatever yt-dlp gave us (usually jpg) to webp
+    try:
+        from PIL import Image
+
+        Image.open(src).save(webp, "WEBP", quality=85)
+        if src != webp:
+            os.remove(src)
+        print(f"[ok] thumbnail (yt-dlp) -> {webp}")
+        return webp
+    except Exception as e:
+        print(f"[warn] webp convert failed ({e}); keeping {src}")
+        return src
 
 
 # --------------------------------------------------------------------------- #

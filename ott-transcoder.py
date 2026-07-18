@@ -17,6 +17,15 @@ import psutil
 import multiprocessing
 from dataclasses import dataclass
 import concurrent.futures
+import threading
+
+# Stream stdout line-by-line so transcoding progress reaches the parent
+# process (and the notebook) in real-time instead of being buffered. Force
+# UTF-8 so the progress/status glyphs never crash a non-UTF-8 console.
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
+except (AttributeError, ValueError):
+    pass
 
 @dataclass
 class UploadJob:
@@ -83,6 +92,9 @@ class VideoProcessor:
         self.processed_resolutions = set()
         self.ffmpeg_path = 'ffmpeg'
         self.hw_accel_config = self._get_hw_accel_config()
+        self.duration = self._probe_duration()
+        if self.duration:
+            print(f"Source duration for {self.video_id}: {self.duration:.1f}s")
         self.load_processing_state()
 
     def load_config(self):
@@ -93,6 +105,25 @@ class VideoProcessor:
             "720p": {"width": 1280, "height": 720, "bitrate": "2M"},
             "1080p": {"width": 1920, "height": 1080, "bitrate": "4M"}
         }
+
+    def _probe_duration(self) -> float:
+        """Probe the source video's duration in seconds using ffprobe.
+
+        Returns 0.0 if it can't be determined (progress % is then omitted).
+        """
+        try:
+            result = subprocess.run(
+                ['ffprobe', '-v', 'error',
+                 '-show_entries', 'format=duration',
+                 '-of', 'default=noprint_wrappers=1:nokey=1',
+                 self.video_path],
+                capture_output=True, text=True, check=False
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return float(result.stdout.strip())
+        except (ValueError, FileNotFoundError) as e:
+            print(f"Could not probe duration (progress %% unavailable): {e}")
+        return 0.0
 
     def _get_hw_accel_config(self) -> Dict:
         """
@@ -148,6 +179,10 @@ class VideoProcessor:
 
         ffmpeg_command.extend([
             '-i', self.video_path, # Input file must come after hwaccel flags
+            # Emit machine-readable progress on stdout so we can log it live,
+            # and suppress the default noisy stats block on stderr.
+            '-nostats',
+            '-progress', 'pipe:1',
             '-vf', f'scale_npp={config["width"]}:{config["height"]}',
             '-c:v', 'h264',
             '-b:v', config['bitrate'],
@@ -186,21 +221,77 @@ class VideoProcessor:
             ffmpeg_command.insert(preset_index + 3, 'fastdecode')
 
         try:
+            print(f"[{resolution}] ▶ Starting ffmpeg ({config['width']}x{config['height']} @ {config['bitrate']})")
+
             process = subprocess.Popen(
                 ffmpeg_command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                universal_newlines=True
+                universal_newlines=True,
+                bufsize=1
             )
-            
-            print(f"Started processing {resolution}")
-            stdout, stderr = process.communicate()
-            
+
+            # Drain stderr in a background thread so its buffer can't fill and
+            # deadlock, and so we keep the tail around for error reporting.
+            stderr_tail: List[str] = []
+
+            def _drain_stderr():
+                for err_line in process.stderr:
+                    stderr_tail.append(err_line)
+                    if len(stderr_tail) > 40:  # bound memory to the last ~40 lines
+                        del stderr_tail[0]
+
+            stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+            stderr_thread.start()
+
+            # Parse the -progress key=value stream from stdout and print a
+            # throttled, human-readable progress line every few seconds.
+            stats: Dict[str, str] = {}
+            last_log = 0.0
+            for line in process.stdout:
+                line = line.strip()
+                if '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                stats[key] = value
+
+                # ffmpeg emits "progress=continue" / "progress=end" to close
+                # each progress block.
+                if key != 'progress':
+                    continue
+
+                now = time.time()
+                is_end = value == 'end'
+                if not is_end and (now - last_log) < 5:
+                    stats = {}
+                    continue
+                last_log = now
+
+                secs = None
+                out_time_ms = stats.get('out_time_ms', '')
+                if out_time_ms.lstrip('-').isdigit():
+                    # out_time_ms is actually microseconds in ffmpeg
+                    secs = int(out_time_ms) / 1_000_000
+                out_time = stats.get('out_time', 'N/A')
+                fps = stats.get('fps', 'N/A')
+                speed = stats.get('speed', 'N/A')
+
+                if secs is not None and self.duration:
+                    pct = min(100.0, secs / self.duration * 100)
+                    print(f"[{resolution}] {pct:5.1f}%  {secs:6.0f}s/{self.duration:.0f}s  "
+                          f"fps={fps}  speed={speed}")
+                else:
+                    print(f"[{resolution}] time={out_time}  fps={fps}  speed={speed}")
+                stats = {}
+
+            process.wait()
+            stderr_thread.join(timeout=5)
+
             if process.returncode != 0:
-                print(f"Error processing {resolution}:\n{stderr}")
+                print(f"[{resolution}] ❌ Error (exit {process.returncode}):\n{''.join(stderr_tail)}")
                 return None
 
-            print(f"✓ Completed {resolution}")
+            print(f"[{resolution}] ✓ Completed")
 
             bandwidth = int(config['bitrate'].replace('K', '000').replace('M', '000000'))
             self.master_playlist_content += f"#EXT-X-STREAM-INF:BANDWIDTH={bandwidth},RESOLUTION={config['width']}x{config['height']}\n"
@@ -208,7 +299,7 @@ class VideoProcessor:
 
             return output_path
         except Exception as e:
-            print(f"Error processing {resolution}: {str(e)}")
+            print(f"[{resolution}] Error: {str(e)}")
             return None
 
     def process_video(self):
