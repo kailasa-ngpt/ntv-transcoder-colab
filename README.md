@@ -43,7 +43,7 @@ See [`.env.example`](.env.example) for the full list.
 |---|------|--------------|
 | 1 | Setup | GPU check, clone repo, install custom `ffmpeg`/`ffprobe`, `pip install -r requirements.txt`, verify NVENC + `scale_npp` |
 | 2 | Credentials | Load R2 / CMS creds from Colab Secrets (or inline fields) into the environment |
-| 3 | Videos | Edit the `VIDEOS` list — one entry per video (`link`, `video_id`, `title`, `category`, `date`, `description`) |
+| 3 | Videos | **Paste one link per line** in `LINKS` — optionally `link \| video_id \| title \| category \| date` |
 | 4 | Download | `gdown` for Drive links, `yt-dlp` otherwise → `workspace/<video_id>.mp4` |
 | 5 | Transcode | `ott-transcoder.py` → HLS 240p–1080p → upload to R2; grabs duration + a `thumbnail.webp` |
 | 6 | CMS push | *(optional)* create category if needed + `POST /api/videos` with the details |

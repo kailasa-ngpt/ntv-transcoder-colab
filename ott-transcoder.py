@@ -87,11 +87,11 @@ class VideoProcessor:
 
     def load_config(self):
         return {
-            "240p": {"width": 426, "height": 240, "bitrate": "500K"},
-            "360p": {"width": 640, "height": 360, "bitrate": "1M"},
-            "480p": {"width": 854, "height": 480, "bitrate": "2M"},
-            "720p": {"width": 1280, "height": 720, "bitrate": "4M"},
-            "1080p": {"width": 1920, "height": 1080, "bitrate": "8M"}
+            "240p": {"width": 426, "height": 240, "bitrate": "250K"},
+            "360p": {"width": 640, "height": 360, "bitrate": "500K"},
+            "480p": {"width": 854, "height": 480, "bitrate": "1M"},
+            "720p": {"width": 1280, "height": 720, "bitrate": "2M"},
+            "1080p": {"width": 1920, "height": 1080, "bitrate": "4M"}
         }
 
     def _get_hw_accel_config(self) -> Dict:
