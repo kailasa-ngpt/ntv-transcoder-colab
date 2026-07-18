@@ -1,0 +1,26 @@
+step 1
+copy files from drive folder
+https://drive.google.com/drive/folders/1c78bXtfJlFEs7sg-jRUVnmBJZZINXlgJ?usp=drive_link
+
+step 2
+install the custom built ffmpeg in the colab terminal
+```
+sudo cp /content/ffmpeg /content/ffprobe /usr/local/bin/
+sudo chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
+hash -r
+ffmpeg -hide_banner -encoders | grep nvenc
+ffmpeg -hide_banner -filters  | grep scale_npp
+```
+
+step 3 install rclone and check 
+```
+curl -s https://rclone.org/install.sh | sudo bash
+pip install -q -r /content/requirements.txt
+nvidia-smi --query-gpu=name --format=csv,noheader      # confirm it's NVIDIA L4
+```
+
+step 4 
+run the script and make sure you have env with latest creds
+```
+python process_youtube_videos.py 
+```

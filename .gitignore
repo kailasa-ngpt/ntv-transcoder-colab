@@ -1,0 +1,38 @@
+# ==== SECRETS — never commit ====
+.env
+*.env
+!.env.example
+rclone.conf
+*service_account*.json
+driven-copilot-*.json
+*.key
+*.pem
+
+# ==== Runtime / working dirs ====
+workspace/
+processing/
+thumbnails/
+logs/
+youtube_video_data.csv
+video_ids.txt
+cms_upload.log
+
+# ==== Media (don't commit test videos/segments) ====
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.ts
+*.m3u8
+
+# ==== Python ====
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# ==== OS ====
+desktop.ini
+.DS_Store
+Thumbs.db

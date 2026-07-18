@@ -1,0 +1,14 @@
+# Video download
+gdown
+yt-dlp
+
+# Transcode + upload
+boto3
+Pillow
+psutil
+
+# Metadata / CMS
+requests
+python-dotenv
+google-api-python-client
+youtube-transcript-api
